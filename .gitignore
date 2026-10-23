@@ -1,0 +1,14 @@
+# Decompiled game code. Copyrighted by Iron Gate: reference only, never
+# committed. `make reference` writes it.
+/reference/
+
+# Item and station icons pulled out of the game's asset bundles by
+# `make data`. Iron Gate's art, the same rule as reference/. The page
+# draws a blank square for an icon it does not have, so a checkout
+# without them runs.
+/site/icons/
+
+# Probe dumps from `forge-data -probe`.
+probe.txt
+
+/bin/
