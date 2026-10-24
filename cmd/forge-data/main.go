@@ -27,8 +27,10 @@ func main() {
 	out := flag.String("out", "site", "output directory: data.json and icons/ go here")
 	game := flag.String("game", "", "the game version the bundles are from, recorded in data.json")
 	noIcons := flag.Bool("no-icons", false, "skip the icons")
+	noUI := flag.Bool("no-ui", false, "skip the UI sprites and fonts")
 	probeNames := flag.String("probe", "", "comma-separated prefab/asset names to dump instead of extracting")
 	probeOut := flag.String("probe-out", "probe.txt", "where -probe writes")
+	list := flag.String("list", "", "comma-separated bundle names: list their sprites, fonts and textures and exit")
 	flag.Parse()
 	if *softRef == "" {
 		flag.Usage()
@@ -37,13 +39,26 @@ func main() {
 	if *dataDir == "" {
 		*dataDir = filepath.Dir(filepath.Dir(*softRef))
 	}
-	if err := run(*softRef, *dataDir, *out, *game, !*noIcons, *probeNames, *probeOut); err != nil {
+	if *list != "" {
+		var paths []string
+		for _, b := range strings.Split(*list, ",") {
+			paths = append(paths, filepath.Join(*softRef, "Bundles", b))
+		}
+		env, err := assets.Load(paths...)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		listAssets(env)
+		return
+	}
+	if err := run(*softRef, *dataDir, *out, *game, !*noIcons, !*noUI, *probeNames, *probeOut); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-func run(softRef, dataDir, out, game string, icons bool, probeNames, probeOut string) error {
+func run(softRef, dataDir, out, game string, icons, ui bool, probeNames, probeOut string) error {
 	started := time.Now()
 	held, err := assets.Manifest(softRef)
 	if err != nil {
@@ -75,6 +90,10 @@ func run(softRef, dataDir, out, game string, icons bool, probeNames, probeOut st
 	}
 	fmt.Printf("    %d serialised files in %.0fs\n", len(env.Files), time.Since(started).Seconds())
 
+	if probeNames == "levelled" {
+		scanLevelled(env)
+		return nil
+	}
 	if probeNames != "" {
 		names := map[string]bool{}
 		for _, n := range strings.Split(probeNames, ",") {
@@ -103,6 +122,11 @@ func run(softRef, dataDir, out, game string, icons bool, probeNames, probeOut st
 			return err
 		}
 		fmt.Printf("==> %d icons\n", n)
+	}
+	if ui {
+		if err := writeUI(softRef, held, filepath.Join(out, "ui")); err != nil {
+			return err
+		}
 	}
 	db.Extracted = time.Now().Format("2006-01-02")
 	db.Game = game

@@ -31,12 +31,15 @@ async function main() {
   if (u.searchParams.get('item') && state.recipeOf.has(u.searchParams.get('item'))) {
     state.selected = { id: u.searchParams.get('item'), level: clampLevel(u.searchParams.get('level') || '1') };
   }
+  if (state.selected && u.searchParams.get('to')) state.planTo = { id: state.selected.id, to: clampLevel(u.searchParams.get('to')) };
   if (u.searchParams.get('cmp') && state.recipeOf.has(u.searchParams.get('cmp'))) {
     state.compare = { id: u.searchParams.get('cmp'), level: clampLevel(u.searchParams.get('cmplevel') || '1') };
   }
   $('#game-version').textContent = state.db.game ? `game ${state.db.game}, data from ${state.db.extracted}` : `data from ${state.db.extracted}`;
   bind();
   renderAll();
+  const on = $('#picker .on');
+  if (on) on.scrollIntoView({ block: 'center' });
   // ?fch=<same-origin url> loads a save from the server, for working on
   // the page without a file dialog.
   const fchUrl = u.searchParams.get('fch');
@@ -68,6 +71,8 @@ function icon(id, cls = '') {
   return `<span class="icon ${cls} icon-missing"></span>`;
 }
 function nameOf(id) { const it = item(id); return it ? it.name : id; }
+// a requirement slot: the icon with the amount in its corner
+function res(id, amount) { return `<span class="res" title="${esc(nameOf(id))}">${icon(id, 'small')}<em>${amount}</em></span>`; }
 
 function category(it) {
   if (G.isWeapon(it) || G.isAmmo(it)) return 'weapons';
@@ -79,21 +84,21 @@ function category(it) {
 // ---------- events ----------
 
 function bind() {
-  const drop = $('#drop');
+  const box = $('#charbox');
   const file = $('#file');
-  drop.addEventListener('click', () => file.click());
-  drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
-  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-  drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
-  file.addEventListener('change', () => { if (file.files[0]) loadFile(file.files[0]); });
+  $('#load').addEventListener('click', () => file.click());
+  box.addEventListener('dragover', (e) => { e.preventDefault(); box.classList.add('over'); });
+  box.addEventListener('dragleave', () => box.classList.remove('over'));
+  box.addEventListener('drop', (e) => { e.preventDefault(); box.classList.remove('over'); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+  file.addEventListener('change', () => { if (file.files[0]) loadFile(file.files[0]); file.value = ''; });
   $('#name').addEventListener('input', (e) => { state.character.name = e.target.value; if (state.character.fromSave) { state.character.fromSave = false; } renderCharacter(false); renderItem(); });
-  $('#forget').addEventListener('click', () => { state.character = { name: '', seeds: new Map(), items: [], fromSave: false, file: '' }; $('#name').value = ''; renderAll(); });
+  $('#forget').addEventListener('click', () => { state.character = { name: '', seeds: new Map(), items: [], fromSave: false, file: '' }; $('#name').value = ''; $('#file-status').hidden = true; renderAll(); });
   $('#search').addEventListener('input', (e) => { state.query = e.target.value.trim().toLowerCase(); renderPicker(); });
   $('#category').addEventListener('change', (e) => { state.category = e.target.value; renderPicker(); });
   $('#picker').addEventListener('click', (e) => {
     const b = e.target.closest('[data-pick]');
     if (!b) return;
-    select(b.dataset.pick, state.selected && state.selected.id === b.dataset.pick ? state.selected.level : 1);
+    select(b.dataset.pick, state.selected && state.selected.id === b.dataset.pick ? state.selected.level : item(b.dataset.pick).maxQuality);
   });
   $('#character').addEventListener('click', (e) => {
     const b = e.target.closest('[data-pick]');
@@ -107,6 +112,7 @@ function bind() {
     else if (t.id === 'results') { state.results = parseInt(t.value, 10); renderItem(false); }
     else if (t.dataset.earlier) { state.earlier.set(parseInt(t.dataset.earlier, 10), Math.max(0, parseInt(t.value, 10) || 0)); renderItem(false); }
     else if (t.id === 'cmp-search') { renderCompareList(t.value.trim().toLowerCase()); }
+    else if (t.id === 'plan-to') { state.planTo = { id: state.selected.id, to: clampLevel(t.value) }; renderPlan(); }
     else if (t.id === 'cmp-level') { if (state.compare) { state.compare.level = clampLevel(t.value); renderCompare(); } }
   });
   $('#item').addEventListener('click', (e) => {
@@ -114,7 +120,7 @@ function bind() {
     if (b) { state.compare = { id: b.dataset.cmp, level: state.compare ? state.compare.level : state.selected.level }; $('#cmp-search').value = ''; renderCompareList(''); renderCompare(); return; }
     if (e.target.id === 'cmp-clear') { state.compare = null; renderCompare(); }
   });
-  $('#find').addEventListener('click', runFinder);
+  $('#find').addEventListener('click', relay);
 }
 
 function clampLevel(v) {
@@ -136,6 +142,7 @@ function select(id, level) {
 
 async function loadFile(f) {
   const status = $('#file-status');
+  status.hidden = false;
   status.textContent = `Reading ${f.name}…`;
   status.className = 'status';
   try {
@@ -143,9 +150,9 @@ async function loadFile(f) {
     const p = await parseFch(bytes);
     state.character = { name: p.name, seeds: p.seeds, items: p.items, fromSave: true, file: f.name, playerId: p.playerId, version: p.version, checksumOk: p.checksumOk, knownRecipes: p.knownRecipes, trailing: p.trailing };
     $('#name').value = p.name;
-    let msg = `${f.name}: ${p.name}, character version ${p.version}, ${p.seeds.size} forge slot${p.seeds.size === 1 ? '' : 's'} stored.`;
-    if (p.checksumOk === false) msg += ' The checksum does not match: the file is damaged or was edited.';
-    if (p.trailing) msg += ` ${p.trailing} unread bytes at the end: the format may have changed.`;
+    let msg = `${f.name} · version ${p.version} · ${p.seeds.size} slot${p.seeds.size === 1 ? '' : 's'} stored`;
+    if (p.checksumOk === false) msg += ' · checksum mismatch: damaged or edited';
+    if (p.trailing) msg += ` · ${p.trailing} unread bytes: format changed?`;
     status.textContent = msg;
     status.className = 'status' + (p.checksumOk === false || p.trailing ? ' warn' : ' ok');
   } catch (err) {
@@ -167,7 +174,7 @@ function renderAll() {
 function renderCharacter(full) {
   const c = state.character;
   $('#forget').hidden = !c.fromSave;
-  $('#drop').hidden = c.fromSave;
+  $('#load').hidden = c.fromSave;
   $('#name').readOnly = c.fromSave;
   if (!full) return;
   const inv = $('#inventory');
@@ -191,8 +198,8 @@ function renderCharacter(full) {
     else slots.push(`<span class="chip chip-unknown" title="seed ${seed}">key ${key}<b>?</b></span>`);
   }
   inv.innerHTML = `
-    <div class="sub"><h3>Forge-able items in the inventory</h3>${chips.length ? `<div class="chips">${chips.join('')}</div>` : '<p class="muted">None. An item has to be in the inventory, not a chest, to show here.</p>'}</div>
-    <div class="sub"><h3>Slots with a stored seed</h3><p class="muted">One per item and target level the character has attempted. Click one to look at the next attempt.</p>${slots.length ? `<div class="chips">${slots.join('')}</div>` : '<p class="muted">None yet: every first attempt will start from the character name.</p>'}</div>`;
+    <div class="sub"><h3>In the inventory</h3>${chips.length ? `<div class="chips">${chips.join('')}</div>` : '<p class="muted">No forge-able items carried.</p>'}</div>
+    <div class="sub"><h3>Attempted slots</h3>${slots.length ? `<div class="chips">${slots.join('')}</div>` : '<p class="muted">None yet.</p>'}</div>`;
 }
 
 // decodeSlot finds the item and level a stored key belongs to, by trying
@@ -215,15 +222,17 @@ function renderPicker() {
   grid.innerHTML = ids.map((id) => {
     const it = item(id);
     const on = state.selected && state.selected.id === id ? ' on' : '';
-    return `<button class="tile${on}" data-pick="${esc(id)}" title="${esc(id)}">${icon(id, 'big')}<span class="tile-name">${esc(it.name)}</span><span class="tile-sub">${esc(it.type.replace(/([a-z])([A-Z])/g, '$1 $2'))} · max ${it.maxQuality}</span></button>`;
+    return `<button class="rowitem${on}" data-pick="${esc(id)}" title="${esc(id)}">${icon(id)}<span class="n">${esc(it.name)}</span><span class="q">${esc(it.type.replace(/([a-z])([A-Z])/g, '$1 $2'))} · max ${it.maxQuality}</span></button>`;
   }).join('') || '<p class="muted">Nothing matches.</p>';
   $('#picker-count').textContent = `${ids.length} of ${state.recipeOf.size}`;
 }
 
 function renderItem(full) {
   const sec = $('#item');
-  if (!state.selected) { sec.hidden = true; return; }
+  const ph = $('#placeholder');
+  if (!state.selected) { sec.hidden = true; if (ph) ph.hidden = false; return; }
   sec.hidden = false;
+  if (ph) ph.hidden = true;
   const { id, level } = state.selected;
   const it = item(id);
   const recipe = state.recipeOf.get(id);
@@ -235,18 +244,19 @@ function renderItem(full) {
     const pDown = Math.max(0, 1 - pSuccess - pDestroy);
     const odds = [`<b class="ok">${pct(pSuccess)}</b> success`, pDown > 0 ? `<b class="warn">${pct(pDown)}</b> loses a level` : '', pDestroy > 0 ? `<b class="bad">${pct(pDestroy)}</b> destroyed` : ''].filter(Boolean).join(', ');
     $('#item-head').innerHTML = `
-      ${icon(id, 'huge')}
+      <span class="slot">${icon(id, 'huge')}</span>
       <div>
         <h2>${esc(it.name)} <small>${esc(id)}</small></h2>
         <p class="desc">${esc(it.description || '')}</p>
-        <p class="meta">${esc(it.type.replace(/([a-z])([A-Z])/g, '$1 $2'))}${it.skill ? ` · ${esc(it.skill)}` : ''} · normal max quality ${it.maxQuality}${recipe.station ? ` · crafted at ${esc(state.db.stations[recipe.station] ? state.db.stations[recipe.station].name : recipe.station)}` : ''}</p>
-        <p class="meta">Forge idol: ${icon(idol === it ? id : recipeIdolId(recipe))} <b>${esc(idol.name)}</b> — ${odds}. On destruction ${pct(up.return)} of the recoverable materials come back.</p>
+        <p class="meta">${esc(it.type.replace(/([a-z])([A-Z])/g, '$1 $2'))}${it.skill ? ` · ${esc(it.skill)}` : ''} · max quality ${it.maxQuality}${recipe.station ? ` · ${esc(state.db.stations[recipe.station] ? state.db.stations[recipe.station].name : recipe.station)}` : ''}</p>
+        <p class="meta">${res(recipeIdolId(recipe), G.attemptCost(recipe, level).reduce((a, r) => a + r.amount, 0) || 1)} <b>${esc(idol.name)}</b> per attempt · ${odds} · ${pct(up.return)} of the crafting materials returned on destruction</p>
       </div>`;
     $('#level').value = level;
     $('#steps').value = state.steps;
     $('#results').value = state.results;
   }
   renderOracle(it, recipe, idol);
+  renderPlan();
   renderStats(it);
   renderCompareList('');
   renderCompare();
@@ -276,11 +286,9 @@ function renderOracle(it, recipe, idol) {
   for (let n = 1; n <= state.steps; n++) {
     const target = level + n;
     const s = slotSeed(id, target);
-    const cost = G.attemptCost(recipe, target);
-    const costHtml = cost.map((r) => `<span class="res" title="${esc(nameOf(r.item))}">${icon(r.item, 'small')}${r.amount}</span>`).join(' ');
     let cells = '';
     if (s.seed === null) {
-      cells = `<td colspan="${state.results}" class="muted">needs the character name</td>`;
+      cells = `<td colspan="${state.results}" class="muted">needs a name</td>`;
     } else {
       let seed = s.seed;
       const skip = s.source === 'name' ? (state.earlier.get(target) || 0) : 0;
@@ -288,18 +296,17 @@ function renderOracle(it, recipe, idol) {
       for (let k = 0; k < state.results; k++) {
         const r = G.roll(seed);
         const o = G.outcome(r.value, idol.upgrader);
-        cells += `<td class="o-${o}"><b>${label(o)}</b><small>${r.value.toFixed(4)}</small></td>`;
+        cells += `<td class="o-${o}"><b>${label(o)}</b><small>${Math.round(r.value * 100)}%</small></td>`;
         seed = r.next;
       }
     }
-    const earlier = s.source === 'name' ? `<input type="number" min="0" value="${state.earlier.get(target) || 0}" data-earlier="${target}" title="attempts already made at this level by this character">` : (s.source === 'save' ? '<span class="tag">save</span>' : '');
-    rows.push(`<tr><td>${n}</td><td>${target - 1} → <b>${target}</b>${target <= it.maxQuality ? ' <span class="tag" title="a normal station does this level with no roll">safe at station</span>' : ''}</td>${cells}<td>${earlier}</td><td class="cost">${costHtml}</td></tr>`);
+    const earlier = s.source === 'name' ? `<input type="number" min="0" value="${state.earlier.get(target) || 0}" data-earlier="${target}" title="attempts already made at this level by this character">` : (s.source === 'save' ? '<span class="tag" title="seed stored in the save">save</span>' : '');
+    rows.push(`<tr><td>${n}</td><td>${target - 1} → <b>${target}</b>${target <= it.maxQuality ? ' <span class="tag" title="a normal station reaches this level without a roll">station</span>' : ''}</td>${cells}<td>${earlier}</td></tr>`);
   }
   const heads = Array.from({ length: state.results }, (_, i) => `<th>${['1st', '2nd', '3rd'][i]} attempt</th>`).join('');
   $('#oracle').innerHTML = `
-    ${noName ? '<p class="status warn">Load a character or type its name: a slot with no stored seed starts from the name.</p>' : ''}
-    <table class="oracle"><thead><tr><th>step</th><th>level</th>${heads}<th>slot</th><th>cost per attempt</th></tr></thead><tbody>${rows.join('')}</tbody></table>
-    <p class="muted">Rows after the first assume every earlier step succeeded. A level has its own slot, so a second copy of the item uses the 2nd attempt on every level the first copy reached. A slot marked <span class="tag">save</span> has its seed in the file. For one that has not, enter how many times this character has already tried that level and the row skips that many results.</p>
+    ${noName ? '<p class="status warn">Load a character or type its name first.</p>' : ''}
+    <div class="scroll"><table class="oracle"><thead><tr><th>step</th><th>level</th>${heads}<th title="attempts this character already made at this level; a slot marked save has its seed in the file">tried</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>
     ${renderPath(it, recipe, idol)}`;
 }
 
@@ -336,44 +343,42 @@ function renderPath(it, recipe, idol) {
     used.set(key, (used.get(key) || 0) + 1);
     const o = G.outcome(r.value, idol.upgrader);
     for (const x of G.attemptCost(recipe, target)) add(spent, x.item, x.amount);
-    lines.push(`<li class="o-${o}"><span>${attempt}.</span> ${target - 1} → ${target}: <b>${label(o)}</b> <small>${r.value.toFixed(4)}</small></li>`);
+    lines.push(`<li class="o-${o}"><span>${attempt}.</span> ${target - 1} → ${target}: <b>${label(o)}</b> <small>${Math.round(r.value * 100)}%</small></li>`);
     if (o === 'success') lv = target;
     else if (o === 'downgrade') lv = Math.max(0, target - 2);
     else { fate = `destroyed on attempt ${attempt}, going for level ${target}`; returned = G.breakReturn(recipe, target, idol.upgrader); break; }
     if (attempt === 200) fate = 'still going after 200 attempts';
   }
-  const spentHtml = [...spent].map(([i, n]) => `<span class="res" title="${esc(nameOf(i))}">${icon(i, 'small')}${n}</span>`).join(' ');
-  const retHtml = returned.map((x) => `<span class="res" title="${esc(nameOf(x.item))}">${icon(x.item, 'small')}${x.amount}</span>`).join(' ');
+  const spentHtml = [...spent].map(([i, n]) => res(i, n)).join('');
+  const retHtml = returned.map((x) => res(x.item, x.amount)).join('');
   return `
-    <h3>If you keep going</h3>
-    <p class="muted">Attempt by attempt from level ${level}, each slot advancing as it is used, stopping at level ${goal} or at destruction. This is the sequence the game will play out for this character.</p>
+    <h3 title="attempt after attempt as the game would play it, every slot advancing as it is used">If you keep going</h3>
     <ol class="path">${lines.join('')}</ol>
-    <p><b>${esc(fate)}.</b> Spent: ${spentHtml || 'nothing'}.${returned.length ? ` Returned on destruction: ${retHtml}.` : ''}</p>`;
+    <p class="summary"><b>${esc(fate)}.</b> ${spentHtml ? `Spent ${spentHtml}` : ''}${returned.length ? ` Returned ${retHtml}` : ''}</p>`;
 }
 
 // renderStats draws the item's stats across the levels the table covers.
 function renderStats(it) {
   const { level } = state.selected;
-  const levels = [];
-  for (let q = level; q <= level + state.steps; q++) levels.push(q);
   const base = G.statsAt(it, level);
-  const cols = levels.map((q) => G.statsAt(it, q));
-  const rows = base.map((s, i) => {
-    const cells = cols.map((col, j) => {
-      const v = col[i].value;
-      const d = v - s.value;
+  const head = base.map((s) => `<th>${esc(s.label)}</th>`).join('');
+  const rows = [];
+  for (let q = level; q <= level + state.steps; q++) {
+    const stats = G.statsAt(it, q);
+    const now = q === level;
+    const cells = stats.map((s, i) => {
+      const d = s.value - base[i].value;
       const cls = d === 0 ? '' : (G.higherIsBetter(s.key) === d > 0 ? ' up' : ' down');
-      return `<td class="${j === 0 ? 'now' : ''}${cls}">${num(v)}${s.unit}${j > 0 && d !== 0 ? `<small>${d > 0 ? '+' : ''}${num(d)}</small>` : ''}</td>`;
+      return `<td class="${cls}">${num(s.value)}${s.unit}${!now && d !== 0 ? `<small>${d > 0 ? '+' : ''}${num(d)}</small>` : ''}</td>`;
     }).join('');
-    return `<tr><th>${esc(s.label)}</th>${cells}</tr>`;
-  });
+    rows.push(`<tr class="${now ? 'now' : ''}"><th class="${q > it.maxQuality ? 'beyond' : ''}"${q > it.maxQuality ? ' title="forge only"' : ''}>${q}</th>${cells}</tr>`);
+  }
   const extras = [];
   if (it.resist && it.resist.length) extras.push(`Resistances: ${it.resist.map((r) => `${esc(r.mod.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())} to ${esc(G.damageLabel(r.type).toLowerCase())}`).join(', ')}`);
   if (it.setEffect) extras.push(`Set (${it.setSize} parts): ${esc(it.setEffect.name)}${it.setEffect.tooltip ? ` — ${esc(it.setEffect.tooltip.replace(/<[^>]+>/g, ''))}` : ''}`);
   if (it.equipEffect) extras.push(`Equipped: ${esc(it.equipEffect.name)}${it.equipEffect.tooltip ? ` — ${esc(it.equipEffect.tooltip.replace(/<[^>]+>/g, ''))}` : ''}`);
   $('#stats').innerHTML = `
-    <table class="stats"><thead><tr><th>level</th>${levels.map((q, j) => `<th class="${j === 0 ? 'now' : ''}${q > it.maxQuality ? ' beyond' : ''}">${q}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>
-    <p class="muted">Levels past ${it.maxQuality} are only reachable through the Forge of Potential. The per-level steps are the item's own; the game adds them for every level without a cap.</p>
+    <div class="scroll"><table class="stats"><thead><tr><th>level</th>${head}</tr></thead><tbody>${rows.join('')}</tbody></table></div>
     ${extras.length ? `<ul class="extras">${extras.map((x) => `<li>${x}</li>`).join('')}</ul>` : ''}`;
 }
 
@@ -389,8 +394,10 @@ function renderCompareList(q) {
 
 function renderCompare() {
   const out = $('#cmp-table');
-  if (!state.compare) { out.innerHTML = ''; $('#cmp-level').hidden = true; $('#cmp-clear').hidden = true; return; }
-  $('#cmp-level').hidden = false;
+  const lvl = $('#cmp-level');
+  if (!state.compare) { out.innerHTML = ''; lvl.hidden = true; lvl.parentElement.hidden = true; $('#cmp-clear').hidden = true; return; }
+  lvl.hidden = false;
+  lvl.parentElement.hidden = false;
   $('#cmp-clear').hidden = false;
   $('#cmp-level').value = state.compare.level;
   const a = item(state.selected.id);
@@ -412,67 +419,90 @@ function renderCompare() {
     } else diff = '<td></td>';
     return `<tr><th>${esc(s.label)}</th><td>${va ? num(va.value) + va.unit : '–'}</td><td>${vb ? num(vb.value) + vb.unit : '–'}</td>${diff}</tr>`;
   });
-  out.innerHTML = `<table class="stats cmp"><thead><tr><th></th><th>${icon(state.selected.id)} ${esc(a.name)} ${state.selected.level}</th><th>${icon(state.compare.id)} ${esc(b.name)} ${state.compare.level}</th><th>B − A</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  out.innerHTML = `<div class="scroll"><table class="stats cmp"><thead><tr><th></th><th>${icon(state.selected.id)} ${esc(a.name)} ${state.selected.level}</th><th>${icon(state.compare.id)} ${esc(b.name)} ${state.compare.level}</th><th>B − A</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
 }
 
-// ---------- the name finder ----------
+// ---------- the relay ----------
 
-// A fresh character's first roll on every slot comes from its name, so
-// a name can be chosen for a long run of first-attempt successes on one
-// item. Untested in game, as in Forge Oracle, where the idea comes from.
-let finderRun = 0;
-function runFinder() {
-  if (!state.selected) { $('#find-out').textContent = 'Pick an item first.'; return; }
+// The target level the plan aims for: kept per item, defaulting to
+// four past the current level.
+function planTarget() {
   const { id, level } = state.selected;
-  const idol = G.idolOf(state.recipeOf.get(id), state.db.items).upgrader;
+  if (state.planTo && state.planTo.id === id && state.planTo.to > level) return state.planTo.to;
+  return level + 4;
+}
+
+function renderPlan() {
+  $('#plan-to').value = planTarget();
+  relay();
+}
+
+// A relay of characters: from the current level, whoever's next
+// attempts succeed for the most levels in a row takes the item that
+// far, then the next one. The character in hand runs on its real
+// slots; the rest are fresh names, every capitalised name of the chosen
+// length, scanned in the background. No copy is ever lost.
+let relayRun = 0;
+function relay() {
+  const { id, level } = state.selected;
+  const to = planTarget();
+  const recipe = state.recipeOf.get(id);
+  const idol = G.idolOf(recipe, state.db.items).upgrader;
+  const idolId = recipeIdolId(recipe);
+  const c = state.character;
   const maxLen = parseInt($('#find-len').value, 10);
-  const base = G.stableHash(id);
-  const run = ++finderRun;
+  const run = ++relayRun;
+  const out = $('#plan');
   const UP = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const LO = 'abcdefghijklmnopqrstuvwxyz';
-  const best = [];
-  const sizes = [];
-  for (let len = 3; len <= maxLen; len++) sizes.push(26 ** len);
-  const total = sizes.reduce((a, b) => a + b, 0);
-  let len = 3, i = 0, done = 0;
-  const out = $('#find-out');
-  function streak(name) {
-    const hn = G.stableHash(name);
-    let n = 0;
-    while (n < 30) {
-      const key = (base + level + 1 + n) | 0;
-      if (G.outcome(G.roll((hn + key) | 0).value, idol) !== 'success') break;
-      n++;
-    }
-    return n;
-  }
+  const mine = c.name ? { name: c.name, seeds: c.seeds, skip: state.earlier, mine: true } : null;
+  const legs = [];
+  let cur = level;
+  let best = null;
+  let len = 3, i = 0;
   function nameAt(len, i) {
     let s = '';
     for (let d = 0; d < len - 1; d++) { s = LO[i % 26] + s; i = Math.floor(i / 26); }
     return UP[i] + s;
   }
+  function startLeg() {
+    best = mine ? { ...mine, run: G.runFrom(mine.seeds, mine.name, id, cur + 1, to, idol, mine.skip) } : null;
+    if (best && best.run === 0) best = null;
+    len = 3; i = 0;
+  }
+  function finish(note) {
+    const idols = legs.reduce((a, l) => a + l.run, 0);
+    const rows = legs.map((l) => `<tr><td><a class="chip" href="?name=${encodeURIComponent(l.name)}&item=${encodeURIComponent(id)}&level=${l.from}&to=${to}"><span>${esc(l.name)}</span></a>${l.mine ? ' <span class="tag">in hand</span>' : ''}</td><td>${l.from} → <b>${l.from + l.run}</b></td><td>${res(idolId, l.run)}</td></tr>`).join('');
+    out.innerHTML = `
+      <p class="summary"><b>${legs.length}</b> character${legs.length === 1 ? '' : 's'}, ${res(idolId, idols)} no copy lost${note ? `, ${esc(note)}` : ''}.</p>
+      <div class="scroll"><table class="relay"><thead><tr><th>who</th><th>levels</th><th>idols</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="muted">A character can only upgrade an item it has crafted once, and the item changes hands between them; the second part follows from the code and has not been tried in game.</p>`;
+  }
   function tick() {
-    if (run !== finderRun) return;
+    if (run !== relayRun) return;
     const t0 = performance.now();
     while (performance.now() - t0 < 40) {
+      if (cur >= to) { finish(); return; }
       if (len > maxLen) {
-        out.innerHTML = `<p>${total.toLocaleString()} names tried for <b>${esc(nameOf(id))}</b> from level ${level}. Longest runs of first-attempt successes:</p><table class="stats"><tr><th>streak</th><th>name</th></tr>${best.map(([k, n]) => `<tr><td>${k}</td><td><a href="?name=${encodeURIComponent(n)}&item=${encodeURIComponent(id)}&level=${level}">${esc(n)}</a></td></tr>`).join('')}</table>`;
-        return;
+        if (!best) { finish(`nobody succeeds at level ${cur + 1}`); return; }
+        legs.push({ name: best.name, mine: !!best.mine, from: cur, run: best.run });
+        cur += best.run;
+        if (cur >= to) { finish(); return; }
+        startLeg();
+        continue;
       }
-      for (let c = 0; c < 2000 && i < 26 ** len; c++, i++, done++) {
-        const n = nameAt(len, i);
-        const k = streak(n);
-        if (best.length < 10 || k > best[best.length - 1][0]) {
-          best.push([k, n]);
-          best.sort((x, y) => y[0] - x[0]);
-          if (best.length > 10) best.pop();
-        }
+      for (let k = 0; k < 2000 && i < 26 ** len; k++, i++) {
+        const name = nameAt(len, i);
+        const n = G.runFrom(null, name, id, cur + 1, to, idol, null);
+        if (n > 0 && (!best || n > best.run)) best = { name, run: n };
+        if (best && best.run >= to - cur) { len = maxLen + 1; break; }
       }
       if (i >= 26 ** len) { len++; i = 0; }
     }
-    out.textContent = `${Math.round((done / total) * 100)}% · best so far ${best.length ? best[0][0] + ' in a row (' + best[0][1] + ')' : '…'}`;
+    out.textContent = `working out level ${cur + 1}…`;
     setTimeout(tick, 0);
   }
+  startLeg();
   tick();
 }
 

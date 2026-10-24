@@ -79,6 +79,16 @@ type Item struct {
 	// Upgrader is set on the idols: what a Forge of Potential attempt
 	// paid with this item rolls against.
 	Upgrader *Upgrader `json:"upgrader,omitempty"`
+
+	// What else reads the item's level: a summoning staff's cap on
+	// summons (SpawnAbility.m_setMaxInstancesFromWeaponLevel), and an
+	// attack status effect whose duration or damage grows per level
+	// (SE_Shield, SE_React).
+	SummonsPerLevel      bool               `json:"summonsPerLevel,omitempty"`
+	EffectName           string             `json:"effectName,omitempty"`
+	EffectTTL            float64            `json:"effectTTL,omitempty"`
+	EffectTTLPerLevel    float64            `json:"effectTTLPerLevel,omitempty"`
+	EffectDamagePerLevel map[string]float64 `json:"effectDamagePerLevel,omitempty"`
 }
 
 // Resist is one entry of m_damageModifiers.
@@ -376,6 +386,7 @@ func readItem(env *assets.Env, cab string, t map[string]any, strs map[string]str
 	}
 	item.SetEffect = effect(env, cab, s["m_setStatusEffect"], strs)
 	item.EquipEffect = effect(env, cab, s["m_equipStatusEffect"], strs)
+	levelled(env, cab, s, item, strs)
 	// The upgrader block exists on every item; it only means something on
 	// the ones a recipe spends as the upgrader resource, so it is kept on
 	// all of them and the site reads it off the idol a recipe names.
@@ -457,4 +468,36 @@ func prune(db *DB) {
 			delete(db.Stations, name)
 		}
 	}
+}
+
+// levelled reads what hangs off an item's attack that scales with its
+// quality: the projectile's SpawnAbility, and the attack status effect.
+func levelled(env *assets.Env, cab string, shared map[string]any, item *Item, strs map[string]string) {
+	for _, ak := range []string{"m_attack", "m_secondaryAttack"} {
+		a := assets.AsMap(shared[ak])
+		ref, ok := env.Deref(cab, a["m_attackProjectile"])
+		if !ok {
+			continue
+		}
+		pt := env.Tree(ref.Cab, ref.ID)
+		for _, c := range assets.AsList(pt["m_Component"]) {
+			ct, _ := env.TreeOf(ref.Cab, assets.AsMap(c)["component"])
+			if ct != nil && assets.AsBool(ct["m_setMaxInstancesFromWeaponLevel"]) {
+				item.SummonsPerLevel = true
+			}
+		}
+	}
+	st, _ := env.TreeOf(cab, shared["m_attackStatusEffect"])
+	if st == nil {
+		return
+	}
+	ttlPer := assets.AsFloat(st["m_ttlPerItemLevel"])
+	dmg := damages(assets.AsMap(st["m_damagePerLevel"]))
+	if ttlPer == 0 && dmg == nil {
+		return
+	}
+	item.EffectName = localize(strs, assets.AsString(st["m_name"]))
+	item.EffectTTL = assets.AsFloat(st["m_ttl"])
+	item.EffectTTLPerLevel = ttlPer
+	item.EffectDamagePerLevel = dmg
 }

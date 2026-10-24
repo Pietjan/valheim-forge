@@ -5,92 +5,83 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Valheim Forge</title>
 <meta name="description" content="What the Forge of Potential will do with your item: every upcoming roll read from your character save, with icons, per-level stats, costs and comparisons.">
-<link rel="icon" href="icons/Upgrader7Weapon.png">
+<link rel="icon" href="ui/mapicon_upgradestation.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>Valheim Forge</h1>
-  <p>The Forge of Potential, read ahead of time: every upcoming roll for your character, the stats each level adds, what each attempt costs, and what happens if you keep going. Your save stays in your browser.</p>
-  <p class="muted" id="game-version"></p>
+  <h1>Forge of Potential</h1>
+  <p>Every upcoming roll for your character, read from your save. Nothing is uploaded.</p>
   <p id="error" class="status warn" hidden></p>
 </header>
 
 <main>
+<aside>
 <section id="character" class="card">
-  <h2>1. Character</h2>
-  <div class="row">
-    <div id="drop" class="drop">
-      <b>Drop your character file here</b> or click to browse.
-      <small>Steam: <code>Steam\userdata\&lt;id&gt;\892970\remote\characters\&lt;name&gt;.fch</code>; without cloud saves: <code>%USERPROFILE%\AppData\LocalLow\IronGate\Valheim\characters_local</code>. Quit to the main menu first so the game writes it.</small>
-      <input id="file" type="file" accept=".fch,.old,application/octet-stream" hidden>
-    </div>
-    <label class="name">Character name <input id="name" type="text" placeholder="exactly as in game" autocomplete="off" spellcheck="false">
-      <small>Without a save, every slot starts from the name. Capitals matter.</small></label>
-    <button id="forget" hidden>Forget this save</button>
+  <h2>Character</h2>
+  <div id="charbox" class="charbox" title="Type the name, or drop the .fch here: Steam\userdata\<id>\892970\remote\characters\<name>.fch, else AppData\LocalLow\IronGate\Valheim\characters_local. Quit to the main menu first so the game writes it.">
+    <input id="name" type="text" placeholder="character name, or drop a .fch" autocomplete="off" spellcheck="false">
+    <button id="load" type="button">Load .fch</button>
+    <button id="forget" type="button" hidden>Forget</button>
+    <input id="file" type="file" accept=".fch,.old,application/octet-stream" hidden>
   </div>
   <p id="file-status" class="status" hidden></p>
   <div id="inventory"></div>
 </section>
 
 <section class="card">
-  <h2>2. Item <span id="picker-count" class="muted"></span></h2>
-  <div class="row">
-    <input id="search" type="search" placeholder="search by name or id…" autocomplete="off">
+  <h2>Item <span id="picker-count"></span></h2>
+  <div class="list-head">
+    <input id="search" type="search" placeholder="search…" autocomplete="off">
     <select id="category">
-      <option value="all">everything the forge takes</option>
+      <option value="all">all</option>
       <option value="weapons">weapons &amp; ammo</option>
       <option value="armor">armor &amp; trinkets</option>
       <option value="shields">shields</option>
       <option value="other">other</option>
     </select>
   </div>
-  <div id="picker" class="grid"></div>
+  <div class="inner"><div id="picker" class="list"></div></div>
 </section>
+</aside>
 
+<div class="content">
 <section id="item" class="card" hidden>
   <div id="item-head" class="head"></div>
   <div class="row controls">
-    <label>Current level <input id="level" type="number" min="1" max="99" value="1"></label>
+    <label>Level <input id="level" type="number" min="1" max="99" value="1"></label>
     <label>Steps <select id="steps"><option>5</option><option selected>10</option><option>15</option><option>20</option></select></label>
-    <label>Results per step <select id="results"><option value="1">next</option><option value="2">next two</option><option value="3">next three</option></select></label>
+    <label>Results <select id="results"><option value="1">next</option><option value="2">next two</option><option value="3">next three</option></select></label>
   </div>
   <h3>Upcoming attempts</h3>
   <div id="oracle"></div>
+  <h3>Plan</h3>
+  <div class="row controls cmp-row">
+    <label>To level <input id="plan-to" type="number" min="2" max="99" value="8"></label>
+    <label>Names <select id="find-len"><option value="3">3 letters</option><option value="4" selected>3–4 letters</option><option value="5">3–5 letters (slow)</option></select></label>
+    <button id="find" title="work it out again">Rerun</button>
+  </div>
+  <div id="plan"></div>
   <h3>Stats by level</h3>
   <div id="stats"></div>
   <h3>Compare with</h3>
-  <div class="row">
+  <div class="row controls cmp-row">
     <input id="cmp-search" type="search" placeholder="another item…" autocomplete="off">
-    <label>at level <input id="cmp-level" type="number" min="1" max="99" value="1" hidden></label>
+    <label>Level <input id="cmp-level" type="number" min="1" max="99" value="1" hidden></label>
     <button id="cmp-clear" hidden>Clear</button>
   </div>
   <div id="cmp-list" class="chips"></div>
   <div id="cmp-table"></div>
 </section>
 
-<section class="card">
-  <h2>Find a starting name <small class="muted">experimental</small></h2>
-  <p class="muted">A character that has never tried an item at a level rolls from its name on the first attempt, so a name can be picked for a run of first-attempt successes on the selected item from its current level. Only the first attempt per level counts, the character must have crafted the item once before it can upgrade it, and this has not been tried in game.</p>
-  <div class="row">
-    <label>Name length <select id="find-len"><option value="3">3 letters (instant)</option><option value="4" selected>3–4 letters (seconds)</option><option value="5">3–5 letters (slow)</option></select></label>
-    <button id="find">Search</button>
-  </div>
-  <div id="find-out"></div>
+<section id="placeholder" class="card">
+  <p class="muted">Pick an item.</p>
 </section>
 
-<section class="card about">
-  <h2>How this works</h2>
-  <p>Every number here is read from the game's own code and data, not typed in. The item stats, recipes, idols and icons come straight out of the client's asset bundles; the arithmetic is the game's, ported line for line.</p>
-  <ul>
-    <li><b>The roll.</b> When you press upgrade at the Forge of Potential, the game looks up a seed for the pair <i>(item, target level)</i> in your character. If there is none yet, it starts from <i>hash(character name) + hash(item) + level</i>. It seeds Unity's random generator with it, draws one value as the roll, draws once more to store as the slot's next seed, and only then judges the roll. Reloading cannot change it; the next outcome for every slot is already in your save.</li>
-    <li><b>The outcome.</b> The idol decides: a roll at or below its success chance upgrades the item one level. Otherwise, if the idol's break chance is at or above <i>1 − roll</i>, the item is destroyed and a share of the recoverable materials comes back; otherwise the item loses a level. Every idol in the game currently has a 65% success chance and a 100% break chance, so a failure always destroys, but the page reads those numbers from the idol rather than assuming them.</li>
-    <li><b>The cost.</b> Each attempt costs the recipe's per-level amounts for the target level plus one idol, paid whether it succeeds or not. From level 4 up the per-level multiplier grows by a half per level, which is why late upgrades get expensive.</li>
-    <li><b>The stats.</b> Each stat is its base plus a per-level step times (level − 1), with no cap. The Forge of Potential lets a level go past the item's normal maximum, and the steps just keep adding.</li>
-    <li><b>The save.</b> The character file is read field by field the way the game reads it, so the inventory, the name, the id and the seed table come from their real places rather than a search for a likely-looking pattern.</li>
-  </ul>
-  <p>The idea, the first write-up of the seed mechanics and the in-game verification of the roll math are <a href="https://github.com/papptimus/Forge-Oracle">papptimus's Forge Oracle</a> (MIT). This page is a from-scratch rebuild on top of the decompiled game and its asset bundles. Unofficial; not affiliated with Iron Gate.</p>
-</section>
+<footer>
+  <span id="game-version"></span> · numbers and icons from the game's own code and data · after <a href="https://github.com/papptimus/Forge-Oracle">Forge Oracle</a> · unofficial
+</footer>
+</div>
 </main>
 <script type="module" src="app.js"></script>
 </body>

@@ -21,15 +21,17 @@ make run         # http://localhost:2480
 
 `make data` reads the Steam client on the Windows side of WSL (see the
 `valheim_data` variable in the Makefile). It writes `site/data.json`,
-which is committed, and `site/icons/`, which is Iron Gate's art and is
-not. `make build` embeds the whole site in one binary; the Dockerfile
+which is committed, and `site/icons/` and `site/ui/` (the item icons, and
+the game's own panels, slots, buttons and fonts the page is drawn with),
+which are Iron Gate's art and are not. `make build` embeds the whole site in one binary; the Dockerfile
 packages that.
 
 ## How it is put together
 
 ```
 cmd/forge-data      reads the asset bundles: ItemDrop, Recipe and CraftingStation
-                    components, the localization table, the icon atlas
+                    components, the localization table, the icon atlas, the
+                    UI atlas and the fonts
 cmd/valheim-forge   serves site/, embedded or from disk
 internal/assets     the loaded bundles as one environment, so a reference
                     from a recipe into an item prefab resolves
@@ -58,12 +60,41 @@ Read out of `assembly_valheim` 1.0.20, `InventoryGui.DoCrafting` and
    a level. Else if the idol's break chance is at or above `1 - roll`, the
    item is destroyed and the idol's return share of the recoverable
    materials comes back. Else the item loses a level.
-4. Every attempt pays the recipe's per-level amounts for the target level
-   plus the idol, succeed or fail.
+4. Every attempt costs the idol, succeed or fail: `Player.ConsumeResources`
+   takes only the upgrader resource at the upgrader station. The recipe's
+   materials are a normal station's price, which the forge does not charge
+   but does refund a share of when the item breaks.
 
 Every idol in the current data has success 0.65, break 1 and return 0.35.
 The page reads those off the idol a recipe names rather than assuming
 them.
+
+## The plan
+
+A relay. Each character has its own slot chains, so the cheapest way to
+a level is to hand the item along: whoever's next attempts succeed for
+the most levels in a row takes it that far, then the next one. The
+character in hand is scored on its real slots (stored seeds, skips),
+the rest are fresh names, every capitalised name of three to five
+letters, scanned in the browser. No copy is ever lost and every level
+costs one idol. `runFrom` and `relayStep` in `site/game.js` are the
+pieces; the page runs the greedy relay, which is optimal for covering a
+range with runs that can start anywhere.
+
+Two assumptions carried over from Forge Oracle: a character can only
+upgrade an item it has crafted once (confirmed in play there), and the
+item changes hands between characters with each one's own slots
+applying (follows from the code, not tried in game).
+
+One finding on the way: a fresh character's slots are seeded with
+consecutive integers (`hash(name) + hash(item) + level`), and Unity's
+generator seeded with `s` and `s + 1` gives related first rolls. Measured
+over 200,000 starting seeds, a run of first-attempt successes across
+consecutive levels never exceeds 8 and rarely exceeds 4, where
+independent 65% rolls would pass 8 about 2% of the time. Stored seeds
+are `Random.Range(0, 99999999)` and not consecutive, so only untouched
+slots are affected. This follows from the traced `InitState` port and
+has not been confirmed in game.
 
 ## Not verified here
 
@@ -71,5 +102,6 @@ The roll math is bit-identical to valheim-npc's Go port, which was traced
 out of the running game, and matches Forge Oracle's recorded attempts.
 The reader was checked against real version 46 saves to the last byte;
 the version 47 layout (the seed table) follows the decompiled code and a
-save written by the test, not yet a save the game wrote. The name finder
-is the same untested idea as in Forge Oracle.
+save written by the test, not yet a save the game wrote. The name search
+rests on the same untested idea as Forge Oracle's finder: that the game
+accepts the name and a new character must first craft the item.

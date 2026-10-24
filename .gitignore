@@ -12,3 +12,8 @@
 probe.txt
 
 /bin/
+
+# The game's interface sprites and fonts, pulled out by `make data` with
+# the icons and under the same rule; the stylesheet falls back to plain
+# colours without them.
+/site/ui/

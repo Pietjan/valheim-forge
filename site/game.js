@@ -85,17 +85,21 @@ export function resourceAmount(res, quality) {
   return Math.floor(num * res.perLevel + (res.upgrader ? res.amount : 0));
 }
 
-// What an attempt at a target level costs: every resource line with a
-// non-zero amount, the idol among them.
+// What an attempt at the Forge of Potential costs at a target level.
+// Player.ConsumeResources takes only the lines flagged as the upgrader
+// resource when the station is the upgrader, so this is the idol alone;
+// the recipe's materials are what a normal station would charge.
 export function attemptCost(recipe, level) {
   return recipe.resources
-    .map((r) => ({ item: r.item, amount: resourceAmount(r, level), upgrader: !!r.upgrader, recover: r.recover }))
+    .filter((r) => r.upgrader)
+    .map((r) => ({ item: r.item, amount: resourceAmount(r, level) }))
     .filter((r) => r.amount > 0);
 }
 
 // What comes back when the item breaks at a target level: for each
 // recoverable line, the share the idol returns of what the item cost to
-// craft plus what the last upgrade cost, rounded up.
+// craft plus what the last upgrade would cost at a normal station,
+// rounded up. Materials the forge never charged for, handed back anyway.
 export function breakReturn(recipe, level, idol) {
   if (!(idol.return > 0)) return [];
   return recipe.resources
@@ -156,6 +160,12 @@ export function statsAt(it, quality) {
     if (it.attackHealth > 0) push('health', 'Health use', it.attackHealth);
     if (it.drawStamina > 0) push('draw', 'Stamina hold', it.drawStamina, '/s');
   }
+  // what else the game reads the level for: a summoning staff's cap
+  // (SpawnAbility), an effect's duration and bonus damage (SE_Shield,
+  // SE_React: ttl = per level * level, damage += per level * (level - 1))
+  if (it.summonsPerLevel) push('summons', 'Summons', quality);
+  if (it.effectTTLPerLevel) push('effectTTL', `${it.effectName} lasts`, it.effectTTLPerLevel * quality, ' s');
+  if (it.effectDamagePerLevel) for (const t of DAMAGE_ORDER) if (it.effectDamagePerLevel[t]) push('effect.' + t, `${it.effectName} +${damageLabel(t).toLowerCase()}`, it.effectDamagePerLevel[t] * lv);
   if (it.useDurability) push('durability', 'Durability', it.durability + lv * (it.durabilityPerLevel || 0));
   push('weight', 'Weight', it.weight * (1 + lv * (it.weightPerLevel || 0)));
   if (it.movement) push('movement', 'Movement speed', it.movement * 100, '%');
@@ -171,4 +181,49 @@ export function damageLabel(t) {
 // are the other way round.
 export function higherIsBetter(key) {
   return !(key === 'weight' || key === 'stamina' || key === 'eitr' || key === 'health' || key === 'draw');
+}
+
+// ---------- planning ----------
+
+// The outcomes a slot will produce, in order: the stored seed when the
+// character has one, else the one its name gives, with `skip` attempts
+// already spent.
+export function slotOutcomes(seeds, name, itemId, level, idol, count, skip = 0) {
+  const key = slotKey(itemId, level);
+  let seed = seeds && seeds.has(key) ? seeds.get(key) : (name ? startSeed(name, key) : null);
+  if (seed === null) return null;
+  for (let i = 0; i < skip; i++) seed = roll(seed).next;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const r = roll(seed);
+    out.push(outcome(r.value, idol));
+    seed = r.next;
+  }
+  return out;
+}
+
+// runFrom is how many levels in a row, from `level` up to at most `to`,
+// this character's next attempt succeeds: the stored seed where the
+// slot was attempted, the name where it was not, `skip` attempts spent.
+export function runFrom(seeds, name, itemId, level, to, idol, skip) {
+  let n = 0;
+  for (let l = level; l <= to; l++) {
+    const o = slotOutcomes(seeds, name, itemId, l, idol, 1, skip ? skip.get(l) || 0 : 0);
+    if (!o || o[0] !== 'success') break;
+    n++;
+  }
+  return n;
+}
+
+// relayStep picks who takes the next levels from `level`: the candidate
+// with the longest run of next-attempt successes. Candidates are
+// {name, seeds, skip, label}; the one in hand is listed first so a tie
+// goes to it. Returns null when nobody succeeds at `level`.
+export function relayStep(candidates, itemId, level, to, idol) {
+  let best = null;
+  for (const c of candidates) {
+    const n = runFrom(c.seeds, c.name, itemId, level, to, idol, c.skip);
+    if (n > 0 && (!best || n > best.run)) best = { ...c, run: n };
+  }
+  return best;
 }

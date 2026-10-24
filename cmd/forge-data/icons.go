@@ -26,13 +26,9 @@ type renderData struct {
 	settings uint32
 }
 
-// writeIcons writes every sprite something asked for, named for what
-// asked. Several share one sprite; each gets its own file.
+// writeIcons writes one icon per item and station, named for the prefab.
 func writeIcons(env *assets.Env, x *extracted, dir string) (int, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return 0, err
-	}
-	// sprite -> the names drawn with it
+	// sprite -> the names drawn with it; several share one.
 	wanted := map[assets.Ref][]string{}
 	missing := map[string]bool{}
 	for name, ref := range x.icons {
@@ -42,7 +38,39 @@ func writeIcons(env *assets.Env, x *extracted, dir string) (int, error) {
 		wanted[ref] = append(wanted[ref], name)
 		missing[name] = true
 	}
-	written := 0
+	written, err := writeSprites(env, wanted, dir)
+	if err != nil {
+		return len(written), err
+	}
+	for name := range written {
+		delete(missing, name)
+	}
+	if len(missing) > 0 {
+		names := make([]string, 0, len(missing))
+		for n := range missing {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		fmt.Printf("    %d icons did not resolve: %v\n", len(names), names[:min(10, len(names))])
+		for _, n := range names {
+			if it := x.db.Items[n]; it != nil {
+				it.Icon = false
+			}
+			if st := x.db.Stations[n]; st != nil {
+				st.Icon = false
+			}
+		}
+	}
+	return len(written), nil
+}
+
+// writeSprites writes every sprite something asked for, one PNG per name
+// asking, and reports which names it wrote.
+func writeSprites(env *assets.Env, wanted map[assets.Ref][]string, dir string) (map[string]bool, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	written := map[string]bool{}
 	for _, cab := range env.Order {
 		f := env.Files[cab]
 		// The atlas: sprite render-data key -> where the sprite is.
@@ -111,24 +139,7 @@ func writeIcons(env *assets.Env, x *extracted, dir string) (int, error) {
 					return written, err
 				}
 				fh.Close()
-				delete(missing, name)
-				written++
-			}
-		}
-	}
-	if len(missing) > 0 {
-		names := make([]string, 0, len(missing))
-		for n := range missing {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		fmt.Printf("    %d icons did not resolve: %v\n", len(names), names[:min(10, len(names))])
-		for _, n := range names {
-			if it := x.db.Items[n]; it != nil {
-				it.Icon = false
-			}
-			if st := x.db.Stations[n]; st != nil {
-				st.Icon = false
+				written[name] = true
 			}
 		}
 	}
