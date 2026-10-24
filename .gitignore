@@ -2,18 +2,8 @@
 # committed. `make reference` writes it.
 /reference/
 
-# Item and station icons pulled out of the game's asset bundles by
-# `make data`. Iron Gate's art, the same rule as reference/. The page
-# draws a blank square for an icon it does not have, so a checkout
-# without them runs.
-/site/icons/
 
 # Probe dumps from `forge-data -probe`.
 probe.txt
 
 /bin/
-
-# The game's interface sprites and fonts, pulled out by `make data` with
-# the icons and under the same rule; the stylesheet falls back to plain
-# colours without them.
-/site/ui/

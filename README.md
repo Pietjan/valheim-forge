@@ -21,9 +21,11 @@ make run         # http://localhost:2480
 
 `make data` reads the Steam client on the Windows side of WSL (see the
 `valheim_data` variable in the Makefile). It writes `site/data.json`,
-which is committed, and `site/icons/` and `site/ui/` (the item icons, and
-the game's own panels, slots, buttons and fonts the page is drawn with),
-which are Iron Gate's art and are not. `make build` embeds the whole site in one binary; the Dockerfile
+`site/icons/` (the item icons) and `site/ui/` (the game's fonts and
+interface sprites). All three are committed, so the page can be served
+as it is; the icons and sprites are Iron Gate's art, the fonts are
+Averia Serif Libre (OFL) and Norse (free to use). Every push to master
+publishes `site/` to GitHub Pages through `.github/workflows/pages.yml`. `make build` embeds the whole site in one binary; the Dockerfile
 packages that.
 
 ## How it is put together
